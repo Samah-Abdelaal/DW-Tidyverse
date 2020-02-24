@@ -1,0 +1,329 @@
+---
+title: "Bias in Healthcare"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+# Setup
+
+### Load packages
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+library(scales)
+```
+
+***
+***
+## Part 1: Data
+
+
+The Behavioral Risk Factor Surveillance System (BRFSS) is a telephone survey that collects data about U.S. residents regarding their health-related risk behaviors, chronic health conditions, and use of preventive services. It collects data in all 50 states as well as the District of Columbia and three U.S. territories. BRFSS completes more than 400,000 adult interviews each year, making it the largest continuously conducted health survey system in the world.
+
+Population: Health characteristics estimated from the BRFSS pertain to the non-institutionalized adult population, aged 18 years or older, who reside in the US.
+
+Respondent data are forwarded to CDC to be aggregated for each state, returned with standard tabulations, and published at year’s end by each state. Source: https://www.cdc.gov/brfss/
+
+In this project, I chose only the variables concerning race and its effect on the experience of seeking healthcare.The purpose of this analysis is to detect bias in healthcare delivery in the USA.
+
+
+### Load data
+```{r}
+race_data1 <- read_csv("Data/race_data1.csv")
+```
+
+
+# Viewing the structure of the data
+```{r}
+str(race_data1)
+```
+
+
+__rrclass2__: How Do Other People Usually Classify You In This Country?
+```{r}
+class(race_data1$rrclass2)
+unique(race_data1$rrclass2)
+```
+
+
+__rrhcare3__: When Seeking Health Care Past 12 Months, Was Experience Worse, Same, Better Than other races
+```{r}
+class(race_data1$rrhcare3)
+unique(race_data1$rrhcare3)
+```
+
+***
+***
+# Data Summarization
+```{r}
+race_data1 %>%
+  group_by(rrclass2) %>%
+  summarize(count = n()) -> count_tab
+pct <- list(c(paste0(round((168/length(race_data1$rrclass2))*100), "%"),                           paste0(round((2490/length(race_data1$rrclass2))*100),"%")))
+freq_tab <- cbind(count_tab, pct)
+colnames(freq_tab) <- c("Race", "Frequency", " Percentage")
+freq_tab
+```
+
+
+
+
+As seen in the above frequency table, the majority of our sample is White **(94%)**.
+
+
+
+
+
+### Cross-tabulating our data
+```{r}
+tab1 <- xtabs(~ rrclass2 + rrhcare3, data = race_data1)
+tab1
+```
+
+***
+***
+# Using visualization to find:
+
+
+Which race has a higher percentage of people having a better healthcare experience than other races compared with those having the same experience as other races.
+
+
+
+
+### For the white race
+```{r}
+race_white <- race_data1 %>%
+  filter(rrclass2=="White")%>%
+  group_by(rrhcare3) %>%
+  summarise(counts = n())
+```
+```{r}
+race_white %>%
+  ggplot(aes(x= rrhcare3,
+             y= counts/sum(counts),
+             fill= rrhcare3)) +
+  geom_bar(stat = "identity") +
+  labs(x= "White",
+       y= "Percentage %",
+       fill = "Experience") +
+  scale_x_discrete(label = function(x)str_wrap(x, width = 5))+
+  scale_y_continuous(labels = percent_format(accuracy = 1))+
+  geom_text(
+    aes(
+      label= paste0(round((counts/ sum(counts))*100),"%"),
+      fontface= "bold"
+      ),
+    vjust= 2
+    ) +
+  theme(axis.text.x = element_text(hjust = 0.5))
+```
+
+
+
+### For the black or african american race
+```{r}
+race_black <- race_data1 %>%
+  filter(rrclass2=="Black or African American")%>%
+  group_by(rrhcare3) %>%
+  summarise(counts = n())
+```
+```{r}
+race_black %>%
+  ggplot(aes(x= rrhcare3,
+             y= counts/sum(counts),
+             fill= rrhcare3)) +
+  geom_bar(stat = "identity") +
+  labs(x= "Black or African American",
+       y= "Percentage %",
+       fill = "Experience") +
+  scale_x_discrete(label = function(x)str_wrap(x, width = 5))+
+  scale_y_continuous(labels = percent_format(accuracy = 1))+
+  geom_text(
+    aes(
+      label= paste0(round((counts/ sum(counts))*100),"%"),
+      fontface = "bold"
+      ),
+    vjust = 1.5
+    ) +
+  theme(axis.text.x = element_text(hjust = 0.5))
+```
+
+
+
+
+
+
+As seen from the two graphs, the percentage of those having a better healthcare experience than other races is higher in people of **white** race**(15%)** compared to those of **black or african american** race**(10%)**, but is this difference statistically significant?
+
+
+***
+***
+***
+# Data Analysis
+
+
+
+
+              
+I researched online on the question of using Chi-square vs logistic regression in case of 2 categorical variables with 2 levels each. There doesn't seem to be a straight answer, but I arrived at the conclusion that both can be applied based on the question: Chi-square for describing the strength of an association, and logistic regression for modeling determinants and predicting the likelihood of an outcome.  
+  
+I tested both methods here.
+              
+
+
+
+
+
+
+### Performing a Chi-square test
+
+
+
+
+Using Chi-square test to test the strength of association between race and healthcare experience   
+
+
+
+
+
+```{r}
+chisq.test(tab1)
+```
+```{r}
+chisq.test(tab1, correct = F)
+```
+
+
+
+
+According to its results, the difference is **not statistically significant**, so we fail to reject the null hypothesis of healthcare experience and race being independent from each other.
+
+
+
+
+***
+***
+### Correlation & Logistic Regression:
+
+
+
+
+Using logistic regression to predict the likelihood of better or same healthcare experience based on race   
+
+
+
+
+
+#### Preparing the data
+```{r}
+logis_data <- race_data1 %>%
+  mutate(race_dummy= (ifelse(rrclass2=="White", 0, 1)),
+         experience_dummy= (ifelse(rrhcare3=="The same as other races", 0, 1)),
+         rrclass2 = as.factor(rrclass2),
+         rrhcare3 =  as.factor(rrhcare3))
+
+logis_data <- within(logis_data, rrclass2 <- relevel(rrclass2, ref = "White"))
+```
+
+
+
+
+***
+#### Assessing correlation between race and the experience of seeking healthcare
+```{r}
+cor(logis_data$experience_dummy, logis_data$race_dummy, method = "spearman")
+```
+```{r}
+library(corrplot)
+correlation <- cor(logis_data[,c(3,4)])
+corrplot(correlation, method = "circle")
+```
+
+
+
+
+
+
+
+
+There is a **weak negative correlation** between race and the experience of seeking healthcare.     
+
+
+
+
+
+
+***
+#### Fitting the data into a logistic regression model
+```{r}
+model1 <- glm(formula = rrhcare3~ rrclass2, family = binomial, data = logis_data)
+summary(model1)
+```
+
+
+
+
+
+
+
+**Notice** both Chi-square test and logistic regression model are reporting very similar p- values, but only when continuity correction is disabled in Chi-square.
+
+
+
+
+
+
+
+
+
+#### Interpreting the model
+
+
+
+
+
+
+
+```{r}
+exp(model1$coefficients)
+```      
+
+
+
+
+
+The **odds** of having a better healthcare experience than other races if a person is **white** is **5.7**  
+
+The **odds** of having a better healthcare experience than other races if a person is **black or african american** is **1.6**
+
+
+
+```{r}
+p1 <- (exp(1.74567)/(1+exp(1.74567)))
+p1
+
+p2 <- (exp(0.43840)/(1+exp(0.43840)))
+p2
+```
+
+
+
+
+The **probability** of having a better healthcare experience than other races if a person is **white** is **85%**  
+
+The **propability** of having a better healthcare experience than other races if a person is **black or african american** is **60%**
+
+#### Ploting the model
+
+     
+     
+I am not sure how to interpret the plots in this type of logistic regression. I would appreciate any help.
+
+    
+    
+    
+```{r}
+plot(model1)
+```
